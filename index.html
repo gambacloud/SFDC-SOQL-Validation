@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SFDC SOQL → CSV Validator</title>
+  <!-- Minimal styling -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#0f172a;--card:#111827;--muted:#1f2937;--text:#e5e7eb;--sub:#9ca3af;--ok:#10b981;--bad:#ef4444;--accent:#6366f1}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#0b1022,#0f172a 25%);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;color:var(--text)}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    h1{margin:0 0 10px;font-size:28px;font-weight:800;letter-spacing:.2px}
+    .sub{color:var(--sub);font-size:14px;margin-bottom:22px}
+    .card{background:rgba(17,24,39,.85);border:1px solid #222;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:16px;margin-bottom:14px}
+    textarea{width:100%;min-height:110px;background:#0b1221;color:var(--text);border:1px solid #243047;border-radius:10px;padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.35}
+    .row{display:grid;gap:12px}
+    @media(min-width:900px){.row{grid-template-columns:1fr 1fr}}
+    .btn{cursor:pointer;border:none;padding:12px 16px;border-radius:11px;background:var(--accent);color:white;font-weight:700}
+    .btn.secondary{background:#374151}
+    .btn.small{padding:6px 10px;border-radius:8px;font-weight:600}
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+    .kpi{background:#0c1326;border:1px solid #1f2a44;border-radius:12px;padding:12px}
+    .kpi h3{margin:0;font-size:12px;color:#9aa7bd;text-transform:uppercase;letter-spacing:.8px}
+    .kpi .v{font-size:22px;font-weight:800;margin-top:6px}
+    .kpi.good{border-color:#134e4a}.kpi.bad{border-color:#4c1d1d}.kpi.rate{border-color:#1e3a8a}
+    .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+    .chip{border:1px solid #334155;color:#cbd5e1;padding:4px 10px;border-radius:999px;font-size:13px}
+    .chip.good{border-color:#065f46;color:#34d399}
+    .chip.bad{border-color:#7f1d1d;color:#fca5a5}
+    .table{width:100%;border-collapse:separate;border-spacing:0 8px}
+    .th{color:#9aa7bd;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.7px}
+    .rowtr{background:#0b1221;border:1px solid #1f2a44}
+    .rowtr td{padding:10px 12px;vertical-align:top}
+    .rowtr.valid{background:#0c1f16;border-color:#14532d}
+    .rowtr.invalid{background:#271316;border-color:#7f1d1d}
+    .badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700}
+    .badge.ok{background:#14532d;color:#a7f3d0}
+    .badge.no{background:#7f1d1d;color:#fecaca}
+    .muted{color:#a3aed0}
+    input[type="file"]{display:none}
+    .filelabel{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px dashed #334155;border-radius:10px;cursor:pointer;color:#cbd5e1}
+    .split{display:grid;gap:12px}
+    .split3{display:grid;gap:12px;grid-template-columns:1fr}
+    @media(min-width:900px){.split3{grid-template-columns:2fr 1fr 1fr}}
+    .note{font-size:12px;color:#94a3b8}
+    .hl{color:#93c5fd}
+  </style>
+  <!-- CSV helper -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🔎 SFDC SOQL → CSV Validator</h1>
+    <div class="sub">Validate a <strong>SOQL WHERE</strong> against CSV rows entirely in your browser. Host anywhere (e.g. GitHub Pages). No backend.</div>
+
+    <div class="card split3">
+      <div>
+        <label class="muted">SOQL Query</label>
+        <textarea id="soql" placeholder="SELECT Id, Name FROM Account WHERE Status = 'Inactive' AND Name LIKE '%2' OR Amount &lt; 900 OR Type = 'Partner'"></textarea>
+        <div class="toolbar">
+          <button class="btn small secondary" id="loadExample">Load Example</button>
+          <span class="note">Supported: <span class="hl">AND</span>, <span class="hl">OR</span>, parentheses, <span class="hl">= != &gt; &gt;= &lt; &lt;=</span>, <span class="hl">LIKE '%x%'</span>, <span class="hl">IN ('A','B')</span></span>
+        </div>
+      </div>
+
+      <div>
+        <label for="file" class="filelabel">📄 Upload CSV file</label>
+        <input id="file" type="file" accept=".csv" />
+        <div id="filename" class="note" style="margin-top:8px"></div>
+      </div>
+
+      <div>
+        <label class="muted">Paste CSV Data</label>
+        <textarea id="csv" placeholder="Name,Status,Amount,Type\nAccount 1,Active,1000,Customer\nAccount 2,Inactive,500,Prospect\nAccount 3,Active,2000,Partner"></textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <button class="btn" id="run">📌 Validate Query</button>
+      <button class="btn secondary" id="download" style="margin-left:8px" disabled>⬇️ Download Results CSV</button>
+      <div id="status" class="note" style="margin-top:10px"></div>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+<script>
+// ---------- Utilities ----------
+const likeToRegex = (pattern) => {
+  // pattern like '%abc_'
+  let esc = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  esc = esc.replace(/%/g, '.*').replace(/_/g, '.');
+  return new RegExp('^' + esc + '$', 'i');
+};
+
+const parseValue = (tok) => {
+  if (tok === undefined) return null;
+  // quoted string
+  if ((tok.startsWith("'") && tok.endsWith("'")) || (tok.startsWith('"') && tok.endsWith('"'))){
+    return tok.slice(1, -1);
+  }
+  if (/^(true|false)$/i.test(tok)) return /^true$/i.test(tok);
+  if (!isNaN(Number(tok))) return Number(tok);
+  return tok; // bare identifier
+};
+
+// Tokenizer for WHERE clause
+function tokenize(expr){
+  const tokens=[]; let i=0; const s=expr.trim();
+  const push=(t)=>tokens.push(t);
+  while(i<s.length){
+    const c=s[i];
+    if(/\s/.test(c)){i++; continue;}
+    if(c==='('||c===')'){push(c); i++; continue;}
+    if(c==='\''||c==='"'){
+      const q=c; let j=i+1; let str=q;
+      while(j<s.length){
+        if(s[j]===q && s[j-1]!=="\\"){str+=q; j++; break;}
+        str+=s[j++];
+      }
+      push(str); i=j; continue;
+    }
+    // operators
+    const op2 = s.slice(i,i+2).toUpperCase();
+    if(['>=','<=','!='].includes(op2)){push(op2); i+=2; continue;}
+    if(['>','<','=','\n',','].includes(c)){push(c); i++; continue;}
+    // keywords/identifiers
+    let j=i; while(j<s.length && /[\w.$]/.test(s[j])) j++;
+    const word=s.slice(i,j);
+    push(word);
+    i=j;
+  }
+  return tokens;
+}
+
+function extractWhere(soql){
+  const m = /\bWHERE\b([\s\S]*)/i.exec(soql);
+  if(!m) return '';
+  let w = m[1];
+  // cut after ORDER BY / LIMIT etc.
+  const cut = /\b(ORDER\s+BY|LIMIT|GROUP\s+BY|OFFSET)\b/i.exec(w);
+  if(cut) w = w.slice(0, cut.index);
+  return w.trim();
+}
+
+// Recursive descent parser for boolean expressions
+function parseWhere(where){
+  const t = tokenize(where);
+  let i=0;
+  const peek=()=>t[i];
+  const eat=(x)=>{if(x && String(peek()).toUpperCase()!==x) throw new Error('Expected '+x+' near '+peek()); return t[i++];};
+  const eatAny=()=>t[i++];
+  
+  function parseExpression(){
+    let node = parseTerm();
+    while(peek() && String(peek()).toUpperCase()==='OR'){
+      eat('OR');
+      node = {type:'OR', left:node, right:parseTerm()};
+    }
+    return node;
+  }
+  function parseTerm(){
+    let node = parseFactor();
+    while(peek() && String(peek()).toUpperCase()==='AND'){
+      eat('AND');
+      node = {type:'AND', left:node, right:parseFactor()};
+    }
+    return node;
+  }
+  function parseFactor(){
+    if(peek()==='('){
+      eat('('); const e=parseExpression(); eat(')'); return e;
+    }
+    return parseComparison();
+  }
+  function parseComparison(){
+    // support simple funcs: LOWER(field) / UPPER(field)
+    let field = eatAny();
+    let fieldFunc = null;
+    if(String(field).toUpperCase()==='LOWER' || String(field).toUpperCase()==='UPPER'){
+      const func = String(field).toUpperCase();
+      eat('('); field = eatAny(); eat(')');
+      fieldFunc = func;
+    }
+    const opRaw = String(eatAny()).toUpperCase();
+    if(opRaw==='IN'){
+      eat('(');
+      const vals=[]; while(peek() && peek()!==')'){ const v=parseValue(eatAny()); vals.push(v); if(peek()===',') eat(','); }
+      eat(')');
+      return {type:'IN', field, fieldFunc, vals};
+    }
+    if(opRaw==='LIKE'){
+      const pat = parseValue(eatAny());
+      return {type:'LIKE', field, fieldFunc, pat};
+    }
+    const op = opRaw; // = != > >= < <=
+    const val = parseValue(eatAny());
+    return {type:'CMP', field, fieldFunc, op, val};
+  }
+  const ast = parseExpression();
+  return ast;
+}
+
+function getFieldValue(row, field){
+  // support dot path a.b.c
+  const parts = String(field).split('.');
+  let v = row;
+  for(const p of parts){ if(v==null) return undefined; v = v[p]; }
+  return v;
+}
+
+function toStringCond(c){
+  switch(c.type){
+    case 'IN': return `${c.field} IN (${c.vals.map(v=>JSON.stringify(v)).join(', ')})`;
+    case 'LIKE': return `${c.field} LIKE ${JSON.stringify(c.pat)}`;
+    case 'CMP': return `${c.field} ${c.op} ${JSON.stringify(c.val)}`;
+    case 'AND': return `(${toStringCond(c.left)} AND ${toStringCond(c.right)})`;
+    case 'OR': return `(${toStringCond(c.left)} OR ${toStringCond(c.right)})`;
+    default: return '';
+  }
+}
+
+function evalAst(ast, row, reasons){
+  if(!ast) return {ok:true};
+  if(ast.type==='AND' || ast.type==='OR'){
+    const l = evalAst(ast.left,row,reasons);
+    const r = evalAst(ast.right,row,reasons);
+    if(ast.type==='AND') return {ok:l.ok && r.ok, meta:[l.meta,r.meta]};
+    return {ok:l.ok || r.ok, meta:[l.meta,r.meta]};
+  }
+  let val = getFieldValue(row, ast.field);
+  if(ast.fieldFunc==='LOWER' && typeof val==='string') val = val.toLowerCase();
+  if(ast.fieldFunc==='UPPER' && typeof val==='string') val = val.toUpperCase();
+
+  let ok=false;
+  if(ast.type==='IN'){
+    ok = ast.vals.some(v=>String(v).toLowerCase()===String(val).toLowerCase());
+  } else if(ast.type==='LIKE'){
+    const pat = typeof ast.pat==='string' ? ast.pat : String(ast.pat);
+    const rx = likeToRegex(pat);
+    ok = rx.test(String(val??''));
+  } else if(ast.type==='CMP'){
+    const a = val, b = ast.val;
+    switch(ast.op){
+      case '=': ok = String(a)==String(b); break;
+      case '!=': ok = String(a)!=String(b); break;
+      case '>': ok = Number(a)>Number(b); break;
+      case '>=': ok = Number(a)>=Number(b); break;
+      case '<': ok = Number(a)<Number(b); break;
+      case '<=': ok = Number(a)<=Number(b); break;
+    }
+  }
+  if(ok) reasons.push(toStringCond(ast));
+  return {ok, meta:ast};
+}
+
+function unparseCSV(rows){
+  return Papa.unparse(rows);
+}
+
+// ---------- App Logic ----------
+const soqlEl = document.getElementById('soql');
+const csvEl = document.getElementById('csv');
+const fileEl = document.getElementById('file');
+const fileNameEl = document.getElementById('filename');
+const statusEl = document.getElementById('status');
+const resultsEl = document.getElementById('results');
+const runBtn = document.getElementById('run');
+const dlBtn = document.getElementById('download');
+
+// Load example
+const exampleSOQL = "SELECT Id, Name FROM Account WHERE (Status = 'Inactive' AND Name LIKE '%2') OR Amount < 900 OR Type = 'Partner'";
+const exampleCSV = `Name,Status,Amount,Type\nAccount 1,Active,1000,Customer\nAccount 2,Inactive,500,Prospect\nAccount 3,Active,2000,Partner`;
+
+document.getElementById('loadExample').onclick = ()=>{
+  soqlEl.value = exampleSOQL;
+  csvEl.value = exampleCSV;
+};
+
+fileEl.addEventListener('change', (e)=>{
+  const f = e.target.files?.[0];
+  if(!f) return; fileNameEl.textContent = f.name;
+  Papa.parse(f, {header:true, skipEmptyLines:true, complete: (res)=>{ csvEl.value = unparseCSV(res.data); }});
+});
+
+runBtn.onclick = () => {
+  try{
+    const where = extractWhere(soqlEl.value || '');
+    if(!where){ alert('No WHERE clause found. We will treat it as TRUE for all rows.'); }
+    const ast = parseWhere(where || '');
+
+    const data = Papa.parse(csvEl.value || '', {header:true, skipEmptyLines:true});
+    if(data.errors?.length){ throw new Error('CSV parse error: '+data.errors[0].message); }
+
+    const rows = data.data;
+    const out = [];
+    let valid=0, invalid=0;
+
+    rows.forEach((row, idx)=>{
+      const reasons=[];
+      const ok = !ast ? true : evalAst(ast, row, reasons).ok;
+      if(ok) valid++; else invalid++;
+      out.push({...row, VALID: ok? 'TRUE':'FALSE', Explanation: ok? ('All conditions met: '+reasons.join('; ')) : ''});
+    });
+
+    // Render
+    const total = rows.length || 0; const rate = total? Math.round(valid*100/total):0;
+    resultsEl.innerHTML = `
+      <div class="card">
+        <div class="kpis">
+          <div class="kpi"><h3>Total</h3><div class="v">${total}</div></div>
+          <div class="kpi good"><h3>Valid</h3><div class="v">${valid}</div></div>
+          <div class="kpi bad"><h3>Invalid</h3><div class="v">${invalid}</div></div>
+          <div class="kpi rate"><h3>Success Rate</h3><div class="v">${rate}%</div></div>
+        </div>
+        <div class="toolbar" style="margin-top:12px">
+          <input id="search" placeholder="Search in results…" style="flex:1;min-width:200px;padding:8px 10px;border-radius:10px;border:1px solid #334155;background:#0b1221;color:#e5e7eb" />
+          <span class="chip" id="fltAll">All</span>
+          <span class="chip good" id="fltGood">Valid</span>
+          <span class="chip bad" id="fltBad">Invalid</span>
+        </div>
+        <div style="overflow:auto;margin-top:6px">
+          <table class="table" id="table">
+            <thead>
+              <tr>
+                <th class="th">#</th>
+                <th class="th">Data</th>
+                <th class="th">Status</th>
+                <th class="th">Explanation</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>`;
+
+    const tbody = document.querySelector('#table tbody');
+    const headers = data.meta.fields || Object.keys(rows[0]||{});
+
+    function renderTable(filter='all', q=''){
+      tbody.innerHTML='';
+      out.forEach((r, i)=>{
+        const ok = r.VALID==='TRUE';
+        if(filter==='good' && !ok) return;
+        if(filter==='bad' && ok) return;
+        const textData = headers.map(h=>`${h}: ${r[h]??''}`).join('\n');
+        const str = (textData + ' ' + (r.Explanation||'')).toLowerCase();
+        if(q && !str.includes(q.toLowerCase())) return;
+        const tr = document.createElement('tr');
+        tr.className = 'rowtr ' + (ok? 'valid' : 'invalid');
+        tr.innerHTML = `
+          <td>${i+1}</td>
+          <td><pre style="margin:0;white-space:pre-wrap">${textData}</pre></td>
+          <td>${ok? '<span class="badge ok">Valid</span>' : '<span class="badge no">Invalid</span>'}</td>
+          <td><pre style="margin:0;white-space:pre-wrap">${r.Explanation||''}</pre></td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    renderTable();
+
+    document.getElementById('fltAll').onclick = ()=>renderTable('all', document.getElementById('search').value);
+    document.getElementById('fltGood').onclick = ()=>renderTable('good', document.getElementById('search').value);
+    document.getElementById('fltBad').onclick = ()=>renderTable('bad', document.getElementById('search').value);
+    document.getElementById('search').oninput = (e)=>renderTable('all', e.target.value);
+
+    // enable download
+    dlBtn.disabled = false;
+    dlBtn.onclick = ()=>{
+      const csvOut = Papa.unparse(out);
+      const blob = new Blob([csvOut], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'validation_results.csv'; a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    statusEl.textContent = 'Validation completed: '+valid+' valid, '+invalid+' invalid.';
+  }catch(err){
+    statusEl.textContent = 'Error: '+err.message;
+  }
+};
+</script>
+</body>
+</html>
