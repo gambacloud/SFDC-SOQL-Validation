@@ -319,7 +319,7 @@ const runBtn = document.getElementById('run');
 const dlBtn = document.getElementById('download');
 
 const exampleSOQL = "SELECT Id, Name FROM CampaignMember WHERE LastModifiedDate >= LAST_N_DAYS:20 AND Routing_process_result__c LIKE 'hot%' AND MQL_Status__c IS NULL AND NOT Email LIKE '%example%'";
-const exampleCSV = `Campaign.Name,Email,LastModifiedDate,CreatedDate,Type\nCWS_March25_Homepage_Hero_FC,garry@krosland.com,2025-08-22T16:19:02.000+0000,2025-08-04T13:13:27.000+0000,CWS`;
+const exampleCSV = `Campaign.Name,Email,LastModifiedDate,CreatedDate,Type\nMarch25_Homepage,cloud@example.com,2025-08-22T16:19:02.000+0000,2025-08-04T13:13:27.000+0000,Partner`;
 
 document.getElementById('loadExample').onclick = ()=>{ soqlEl.value = exampleSOQL; csvEl.value = exampleCSV; };
 
