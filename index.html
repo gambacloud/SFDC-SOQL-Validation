@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SFDC SOQL → CSV Validator (v2)</title>
+  <title>SFDC SOQL → CSV Validator (v4)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
@@ -14,7 +14,7 @@
     h1{margin:0 0 10px;font-size:28px;font-weight:800;letter-spacing:.2px}
     .sub{color:var(--sub);font-size:14px;margin-bottom:22px}
     .card{background:rgba(17,24,39,.85);border:1px solid #222;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:16px;margin-bottom:14px}
-    textarea{width:100%;min-height:110px;background:#0b1221;color:var(--text);border:1px solid #243047;border-radius:10px;padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.35}
+    textarea{width:100%;min-height:120px;background:#0b1221;color:var(--text);border:1px solid #243047;border-radius:10px;padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.35}
     .row{display:grid;gap:12px}
     @media(min-width:900px){.row{grid-template-columns:1fr 1fr}}
     .btn{cursor:pointer;border:none;padding:12px 16px;border-radius:11px;background:var(--accent);color:white;font-weight:700}
@@ -50,16 +50,16 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>🔎 SFDC SOQL → CSV Validator (v2)</h1>
-    <div class="sub">Frontend-only validator for <strong>SOQL WHERE</strong>. Host on GitHub Pages. <br/>Supported: <span class="hl">AND</span>, <span class="hl">OR</span>, <span class="hl">NOT</span>, parentheses, <span class="hl">= != &gt; &gt;= &lt; &lt;=</span>, <span class="hl">LIKE / NOT LIKE</span>, <span class="hl">IN / NOT IN</span>, <span class="hl">IS NULL / IS NOT NULL</span>, <span class="hl">BETWEEN</span>, <span class="hl">LOWER/UPPER</span>, <span class="hl">date literal: TODAY</span> (using browser local date).</div>
+    <h1>🔎 SFDC SOQL → CSV Validator (v4)</h1>
+    <div class="sub">Validate a <strong>SOQL WHERE</strong> against CSV rows entirely in your browser. Host on GitHub Pages. <br/>Supports: <span class="hl">AND</span>, <span class="hl">OR</span>, <span class="hl">NOT</span>, parentheses, <span class="hl">= != &gt; &gt;= &lt; &lt;= &lt;&gt;</span>, <span class="hl">LIKE / NOT LIKE</span>, <span class="hl">IN / NOT IN</span>, <span class="hl">IS NULL / IS NOT NULL</span>, <span class="hl">BETWEEN</span>, <span class="hl">LOWER/UPPER</span>, <span class="hl">date literals: TODAY, YESTERDAY, TOMORROW, LAST_N_DAYS:n</span>.</div>
 
     <div class="card split3">
       <div>
         <label class="muted">SOQL Query</label>
-        <textarea id="soql" placeholder="SELECT Id FROM Account WHERE (Status = 'Inactive' AND Name LIKE '%2') OR CreatedDate = TODAY"></textarea>
+        <textarea id="soql" placeholder="SELECT Id FROM CampaignMember WHERE LastModifiedDate &gt;= LAST_N_DAYS:20 AND MQL_Status__c IS NULL AND NOT Email LIKE '%zoominfo%' "></textarea>
         <div class="toolbar">
           <button class="btn small secondary" id="loadExample">Load Example</button>
-          <span class="note">Tip: <span class="hl">TODAY</span> resolves to your local date (00:00). For CSV dates use <code>YYYY-MM-DD</code> or <code>DD/MM/YYYY</code>.</span>
+          <span class="note">Dotted fields supported (e.g. <span class=hl>Campaign.Name</span>, <span class=hl>Custom__r.Field__c</span>). CSV headers must match.</span>
         </div>
       </div>
       <div>
@@ -69,7 +69,7 @@
       </div>
       <div>
         <label class="muted">Paste CSV Data</label>
-        <textarea id="csv" placeholder="Name,Status,Amount,Type,CreatedDate\nAccount 1,Active,1000,Customer,2025-08-21\nAccount 2,Inactive,500,Prospect,2025-08-23\nAccount 3,Active,2000,Partner,23/08/2025"></textarea>
+        <textarea id="csv" placeholder="Campaign.Name,Email,LastModifiedDate,CreatedDate,Type\nCWS_March25_Homepage_Hero_FC,garry@krosland.com,2025-08-22T16:19:02.000+0000,2025-08-04T13:13:27.000+0000,CWS"></textarea>
       </div>
     </div>
 
@@ -83,9 +83,9 @@
   </div>
 
 <script>
-// -------- Helpers --------
+// ---------- Utilities ----------
 const likeToRegex = (pattern) => {
-  let esc = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let esc = String(pattern).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   esc = esc.replace(/%/g, '.*').replace(/_/g, '.');
   return new RegExp('^' + esc + '$', 'i');
 };
@@ -108,6 +108,7 @@ const parseValue = (tok) => {
   return tok; // bare identifier
 };
 
+// Tokenizer for WHERE clause
 function tokenize(expr){
   const tokens=[]; let i=0; const s=expr.trim();
   const push=(t)=>tokens.push(t);
@@ -115,15 +116,19 @@ function tokenize(expr){
     const c=s[i];
     if(/\s/.test(c)){i++; continue;}
     if(c==='('||c===')'){push(c); i++; continue;}
-    if(c==="'"||c==='"'){
+    if(c==='\''||c==='"'){
       const q=c; let j=i+1; let str=q;
       while(j<s.length){ if(s[j]===q && s[j-1]!=="\\"){str+=q; j++; break;} str+=s[j++]; }
       push(str); i=j; continue;
     }
-    const op2 = s.slice(i,i+2).toUpperCase();
-    if(['>=','<=','!='].includes(op2)){push(op2); i+=2; continue;}
+    // 2-char ops including <>
+    const two = s.slice(i,i+2);
+    const twoUp = two.toUpperCase();
+    if(['>=','<=','!=','<>'].includes(twoUp)){ push(twoUp); i+=2; continue; }
+    // 1-char ops
     if(['>','<','=','\n',','].includes(c)){push(c); i++; continue;}
-    let j=i; while(j<s.length && /[\w.$:]/.test(s[j])) j++;
+    // identifiers: allow -, :, . inside tokens (ISO dates, LAST_N_DAYS:n, dotted fields)
+    let j=i; while(j<s.length && /[\w.$:\-]/.test(s[j])) j++;
     push(s.slice(i,j)); i=j;
   }
   return tokens;
@@ -138,36 +143,65 @@ function extractWhere(soql){
   return w.trim();
 }
 
+// Parser
 function parseWhere(where){
   const t = tokenize(where); let i=0; const up=(x)=>String(x||'').toUpperCase();
   const peek=()=>t[i]; const eat=(x)=>{ if(x && up(peek())!==x) throw new Error('Expected '+x+' near '+peek()); return t[i++]; };
   const eatIf=(x)=> up(peek())===x ? t[i++] : null; const eatAny=()=>t[i++];
 
-  function parseExpression(){ let node=parseTerm(); while(peek() && up(peek())==='OR'){eat('OR'); node={type:'OR',left:node,right:parseTerm()};} return node; }
-  function parseTerm(){ let node=parseFactor(); while(peek() && up(peek())==='AND'){eat('AND'); node={type:'AND',left:node,right:parseFactor()};} return node; }
-  function parseFactor(){ if(peek()==='('){eat('('); const e=parseExpression(); eat(')'); return e;} if(up(peek())==='NOT'){eat('NOT'); return {type:'NOT',expr:parseFactor()};} return parseComparison(); }
+  function parseExpression(){ let node=parseTerm(); while(peek() && up(peek())==='OR'){eat('OR'); node={type:'OR', left:node, right:parseTerm()}; } return node; }
+  function parseTerm(){ let node=parseFactor(); while(peek() && up(peek())==='AND'){eat('AND'); node={type:'AND', left:node, right:parseFactor()}; } return node; }
+  function parseFactor(){ if(peek()==='('){eat('('); const e=parseExpression(); eat(')'); return e;} if(up(peek())==='NOT'){eat('NOT'); return {type:'NOT', expr:parseFactor()};} return parseComparison(); }
 
   function parseFieldWithFunc(){
     let field=eatAny(); let fieldFunc=null; const u=up(field);
     if(['LOWER','UPPER'].includes(u)){ const func=u; eat('('); const inner=eatAny(); eat(')'); field=inner; fieldFunc=func; }
-    return {funcOnly:false, field, fieldFunc};
+    return {field, fieldFunc};
   }
 
   function parseComparison(){
     const f=parseFieldWithFunc(); const field=f.field, fieldFunc=f.fieldFunc;
     if(up(peek())==='IS'){ eat('IS'); const not=!!eatIf('NOT'); eat('NULL'); return {type:not?'IS_NOT_NULL':'IS_NULL', field, fieldFunc}; }
 
-    let opWord = up(eatAny()); let isNot=false; if(opWord==='NOT'){ isNot=true; opWord=up(eatAny()); }
-    if(opWord==='IN'){ eat('('); const vals=[]; while(peek() && peek()!==')'){ const v=parseValue(eatAny()); vals.push(v); if(peek()===',') eat(','); } eat(')'); return {type:isNot?'NOT_IN':'IN', field, fieldFunc, vals}; }
-    if(opWord==='LIKE'){ const pat=parseValue(eatAny()); return {type:isNot?'NOT_LIKE':'LIKE', field, fieldFunc, pat}; }
-    if(opWord==='BETWEEN'){ const a=parseValue(eatAny()); eat('AND'); const b=parseValue(eatAny()); return {type:'BETWEEN', field, fieldFunc, a, b}; }
+    // support NOT X (for NOT IN / NOT LIKE)
+    let opWord; let isNot=false;
+    const nextTok = up(peek());
+    if(nextTok==='NOT'){ eat('NOT'); isNot=true; opWord = up(eatAny()); }
+    else {
+      // support <>
+      const cur = up(peek());
+      if(cur==='<>'){ eat('<>'); opWord='!='; }
+      else opWord = up(eatAny());
+    }
 
-    const val=parseValue(eatAny()); return {type:'CMP', field, fieldFunc, op:opWord, val};
+    if(opWord==='IN'){
+      eat('('); const vals=[]; while(peek() && peek()!==')'){ const v=parseValue(eatAny()); vals.push(v); if(peek()===',') eat(','); } eat(')');
+      return {type: isNot? 'NOT_IN':'IN', field, fieldFunc, vals};
+    }
+    if(opWord==='LIKE'){
+      const pat = parseValue(eatAny());
+      return {type: isNot? 'NOT_LIKE':'LIKE', field, fieldFunc, pat};
+    }
+    if(opWord==='BETWEEN'){
+      const a=parseValue(eatAny()); eat('AND'); const b=parseValue(eatAny());
+      return {type:'BETWEEN', field, fieldFunc, a, b};
+    }
+
+    const val=parseValue(eatAny());
+    return {type:'CMP', field, fieldFunc, op:opWord, val};
   }
   return parseExpression();
 }
 
-function getFieldValue(row, field){ const parts=String(field).split('.'); let v=row; for(const p of parts){ if(v==null) return undefined; v=v[p]; } return v; }
+// Value access supporting dotted headers or flat dotted keys
+function getFieldValue(row, field){
+  // prefer exact header match first
+  if(Object.prototype.hasOwnProperty.call(row, field)) return row[field];
+  // otherwise try dotted path into nested object (if provided as nested JSON)
+  const parts = String(field).split('.'); let v = row;
+  for(const p of parts){ if(v==null) return undefined; v = v[p]; }
+  return v;
+}
 
 function toStringCond(c){ switch(c.type){
   case 'IN': return `${c.field} IN (${c.vals.map(v=>JSON.stringify(v)).join(', ')})`;
@@ -184,7 +218,7 @@ function toStringCond(c){ switch(c.type){
   default: return '';
 }}
 
-// Resolve SOQL date literal or date-like values
+// ---- Date resolution ----
 function resolveDateMeta(x){
   const toMid = (d)=> new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const today = toMid(new Date());
@@ -194,13 +228,14 @@ function resolveDateMeta(x){
       case 'TODAY': return {type:'date', value: today};
       case 'YESTERDAY': { const d=new Date(today); d.setDate(d.getDate()-1); return {type:'date', value:d}; }
       case 'TOMORROW': { const d=new Date(today); d.setDate(d.getDate()+1); return {type:'date', value:d}; }
-      case 'LAST_N_DAYS': { const d1=new Date(today); d1.setDate(d1.getDate()-(x.n||0)); return makeRange(d1, today); }
+      case 'LAST_N_DAYS': { const d1=new Date(today); d1.setDate(d1.getDate()-(x.n||0)); return {type:'range', start:d1, end:today}; }
     }
   }
   if(x==null) return null;
   const parseDateGuess=(s)=>{ if(s instanceof Date) return toMid(s); const str=String(s).trim();
     let m=str.match(/^(\d{4})-(\d{2})-(\d{2})$/); if(m) return new Date(+m[1],+m[2]-1,+m[3]);
     m=str.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(m) return new Date(+m[3],+m[2]-1,+m[1]);
+    // try full datetime
     const dt=new Date(str); if(!isNaN(dt)) return toMid(dt); return null; };
   const dt = parseDateGuess(x);
   return dt? {type:'date', value:dt} : null;
@@ -225,9 +260,9 @@ function evalAst(ast, row, reasons){
     case 'LIKE': ok = likeToRegex(typeof ast.pat==='string'? ast.pat : String(ast.pat)).test(String(val??'')); break;
     case 'NOT_LIKE': ok = !likeToRegex(typeof ast.pat==='string'? ast.pat : String(ast.pat)).test(String(val??'')); break;
     case 'BETWEEN': {
-      const A = resolveDateMeta(ast.a); const B = resolveDateMeta(ast.b); const V = resolveDateMeta(val);
-      if(A && B && V && A.type==='date' && B.type==='date' && V.type==='date'){
-        ok = (V.value >= A.value && V.value <= B.value);
+      const dv=resolveDateMeta(val), da=resolveDateMeta(ast.a), db=resolveDateMeta(ast.b);
+      if(dv && da && db && dv.type==='date' && da.type==='date' && db.type==='date'){
+        ok = dv.value>=da.value && dv.value<=db.value;
       } else {
         ok = Number(val) >= Number(ast.a) && Number(val) <= Number(ast.b);
       }
@@ -235,13 +270,13 @@ function evalAst(ast, row, reasons){
     case 'IS_NULL': ok = (val===null || val===undefined || val===''); break;
     case 'IS_NOT_NULL': ok = !(val===null || val===undefined || val===''); break;
     case 'CMP':{
-      const L = resolveDateMeta(val); const R = resolveDateMeta(ast.val);
+      const L=resolveDateMeta(val); const R=resolveDateMeta(ast.val);
       if(L && (R && (R.type==='date' || R.type==='range'))){
         const a = L.type==='date' ? L.value.getTime() : NaN;
-        const cmp = (num, op, ref)=>{ switch(op){ case '=': return num===ref; case '!=': return num!==ref; case '>': return num>ref; case '>=': return num>=ref; case '<': return num<ref; case '<=': return num<=ref; default: return false; } };
         if(R.type==='date'){
-          ok = cmp(a, ast.op, R.value.getTime());
-        } else { // range LAST_N_DAYS
+          const b=R.value.getTime();
+          switch(ast.op){ case '=': ok=a===b; break; case '!=': ok=a!==b; break; case '>': ok=a>b; break; case '>=': ok=a>=b; break; case '<': ok=a<b; break; case '<=': ok=a<=b; break; default: ok=false; }
+        } else { // LAST_N_DAYS range
           const start=R.start.getTime(), end=R.end.getTime();
           switch(ast.op){
             case '=': ok = (a>=start && a<=end); break;
@@ -253,17 +288,17 @@ function evalAst(ast, row, reasons){
             default: ok=false;
           }
         }
-        break;
-      }
-      const a = val, b = ast.val;
-      switch(ast.op){
-        case '=': ok = String(a)==String(b); break;
-        case '!=': ok = String(a)!=String(b); break;
-        case '>': ok = Number(a)>Number(b); break;
-        case '>=': ok = Number(a)>=Number(b); break;
-        case '<': ok = Number(a)<Number(b); break;
-        case '<=': ok = Number(a)<=Number(b); break;
-        default: ok=false;
+      } else {
+        const a = val, b = ast.val;
+        switch(ast.op){
+          case '=': ok = String(a)==String(b); break;
+          case '!=': ok = String(a)!=String(b); break;
+          case '>': ok = Number(a)>Number(b); break;
+          case '>=': ok = Number(a)>=Number(b); break;
+          case '<': ok = Number(a)<Number(b); break;
+          case '<=': ok = Number(a)<=Number(b); break;
+          default: ok=false;
+        }
       }
     } break;
   }
@@ -273,25 +308,25 @@ function evalAst(ast, row, reasons){
 
 function unparseCSV(rows){ return Papa.unparse(rows); }
 
-// -------- App --------
-const soqlEl=document.getElementById('soql');
-const csvEl=document.getElementById('csv');
-const fileEl=document.getElementById('file');
-const fileNameEl=document.getElementById('filename');
-const statusEl=document.getElementById('status');
-const resultsEl=document.getElementById('results');
-const runBtn=document.getElementById('run');
-const dlBtn=document.getElementById('download');
+// ---------- App Logic ----------
+const soqlEl = document.getElementById('soql');
+const csvEl = document.getElementById('csv');
+const fileEl = document.getElementById('file');
+const fileNameEl = document.getElementById('filename');
+const statusEl = document.getElementById('status');
+const resultsEl = document.getElementById('results');
+const runBtn = document.getElementById('run');
+const dlBtn = document.getElementById('download');
 
-const exampleSOQL = "SELECT Id, Name FROM Account WHERE (Status = 'Inactive' AND Name LIKE '%2') OR CreatedDate = TODAY OR LastModifiedDate = YESTERDAY OR CloseDate = LAST_N_DAYS:30";
-const exampleCSV = `Name,Status,Amount,Type,CreatedDate,LastModifiedDate,CloseDate
-Account 1,Active,1000,Customer,2025-08-21,2025-08-22,2025-07-30
-Account 2,Inactive,500,Prospect,2025-08-23,2025-08-22,2025-08-10
-Account 3,Active,2000,Partner,23/08/2025,22/08/2025,2025-06-01`;
+const exampleSOQL = "SELECT Id, Name FROM CampaignMember WHERE LastModifiedDate >= LAST_N_DAYS:20 AND Routing_process_result__c LIKE 'hot%' AND MQL_Status__c IS NULL AND NOT Email LIKE '%zoominfo%'";
+const exampleCSV = `Campaign.Name,Email,LastModifiedDate,CreatedDate,Type\nCWS_March25_Homepage_Hero_FC,garry@krosland.com,2025-08-22T16:19:02.000+0000,2025-08-04T13:13:27.000+0000,CWS`;
 
-document.getElementById('loadExample').onclick=()=>{ soqlEl.value=exampleSOQL; csvEl.value=exampleCSV; };
+document.getElementById('loadExample').onclick = ()=>{ soqlEl.value = exampleSOQL; csvEl.value = exampleCSV; };
 
-fileEl.addEventListener('change',(e)=>{ const f=e.target.files?.[0]; if(!f) return; fileNameEl.textContent=f.name; Papa.parse(f,{header:true,skipEmptyLines:true,complete:(res)=>{ csvEl.value=unparseCSV(res.data); }}); });
+fileEl.addEventListener('change', (e)=>{
+  const f = e.target.files?.[0]; if(!f) return; fileNameEl.textContent = f.name;
+  Papa.parse(f, {header:true, skipEmptyLines:true, complete: (res)=>{ csvEl.value = Papa.unparse(res.data); }});
+});
 
 runBtn.onclick = () => {
   try{
@@ -299,13 +334,34 @@ runBtn.onclick = () => {
     if(!where){ alert('No WHERE clause found. We will treat it as TRUE for all rows.'); }
     const ast = parseWhere(where || '');
 
-    const data = Papa.parse(csvEl.value || '', {header:true, skipEmptyLines:true});
-    if(data.errors?.length){ throw new Error('CSV parse error: '+data.errors[0].message); }
+    // Parse CSV with cleaning to avoid "Invalid array length" issues due to empty headers
+    const parsed = Papa.parse(csvEl.value || '', {header:true, skipEmptyLines:true});
+    if(parsed.errors?.length){ throw new Error('CSV parse error: '+parsed.errors[0].message); }
 
-    const rows = data.data; const out=[]; let valid=0, invalid=0;
-    rows.forEach((row)=>{ const reasons=[]; const ok=!ast?true:evalAst(ast,row,reasons).ok; if(ok) valid++; else invalid++; out.push({...row, VALID: ok? 'TRUE':'FALSE', Explanation: ok? ('All conditions met: '+reasons.join('; ')) : ''}); });
+    const cleanRows = parsed.data.map((row) => {
+      const out = {};
+      for (const k in row) {
+        if (k === '' || k == null) continue;        // drop empty header
+        const key = String(k).trim();
+        let val = row[k];
+        if (typeof val === 'string') val = val.trim();
+        out[key] = val;
+      }
+      return out;
+    });
 
-    const total=rows.length||0; const rate=total? Math.round(valid*100/total):0;
+    const rows = cleanRows;
+    const out = [];
+    let valid=0, invalid=0;
+
+    rows.forEach((row)=>{
+      const reasons=[]; const ok = !ast ? true : evalAst(ast, row, reasons).ok;
+      if(ok) valid++; else invalid++;
+      out.push({...row, VALID: ok? 'TRUE':'FALSE', Explanation: ok? ('All conditions met: '+reasons.join('; ')) : ''});
+    });
+
+    // Render
+    const total = rows.length || 0; const rate = total? Math.round(valid*100/total):0;
     resultsEl.innerHTML = `
       <div class="card">
         <div class="kpis">
@@ -335,17 +391,20 @@ runBtn.onclick = () => {
         </div>
       </div>`;
 
-    const tbody=document.querySelector('#table tbody');
-    const headers=data.meta.fields || Object.keys(rows[0]||{});
+    const tbody = document.querySelector('#table tbody');
+    const headers = parsed.meta.fields?.filter(h=>h && h.trim()!=='') || Object.keys(rows[0]||{});
 
     function renderTable(filter='all', q=''){
       tbody.innerHTML='';
-      out.forEach((r,i)=>{
+      out.forEach((r, i)=>{
         const ok = r.VALID==='TRUE';
-        if(filter==='good' && !ok) return; if(filter==='bad' && ok) return;
+        if(filter==='good' && !ok) return;
+        if(filter==='bad' && ok) return;
         const textData = headers.map(h=>`${h}: ${r[h]??''}`).join('\n');
-        const str = (textData + ' ' + (r.Explanation||'')).toLowerCase(); if(q && !str.includes(q.toLowerCase())) return;
-        const tr = document.createElement('tr'); tr.className='rowtr ' + (ok? 'valid':'invalid');
+        const str = (textData + ' ' + (r.Explanation||'')).toLowerCase();
+        if(q && !str.includes(q.toLowerCase())) return;
+        const tr = document.createElement('tr');
+        tr.className = 'rowtr ' + (ok? 'valid' : 'invalid');
         tr.innerHTML = `
           <td>${i+1}</td>
           <td><pre style="margin:0;white-space:pre-wrap">${textData}</pre></td>
@@ -356,19 +415,29 @@ runBtn.onclick = () => {
     }
 
     renderTable();
-    document.getElementById('fltAll').onclick=()=>renderTable('all', document.getElementById('search').value);
-    document.getElementById('fltGood').onclick=()=>renderTable('good', document.getElementById('search').value);
-    document.getElementById('fltBad').onclick=()=>renderTable('bad', document.getElementById('search').value);
-    document.getElementById('search').oninput=(e)=>renderTable('all', e.target.value);
 
-    dlBtn.disabled=false;
-    dlBtn.onclick=()=>{ const csvOut=Papa.unparse(out); const blob=new Blob([csvOut],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='validation_results.csv'; a.click(); URL.revokeObjectURL(url); };
+    document.getElementById('fltAll').onclick = ()=>renderTable('all', document.getElementById('search').value);
+    document.getElementById('fltGood').onclick = ()=>renderTable('good', document.getElementById('search').value);
+    document.getElementById('fltBad').onclick = ()=>renderTable('bad', document.getElementById('search').value);
+    document.getElementById('search').oninput = (e)=>renderTable('all', e.target.value);
+
+    // enable download
+    dlBtn.disabled = false;
+    dlBtn.onclick = ()=>{
+      const csvOut = Papa.unparse(out);
+      const blob = new Blob([csvOut], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'validation_results.csv'; a.click();
+      URL.revokeObjectURL(url);
+    };
 
     statusEl.textContent = 'Validation completed: '+valid+' valid, '+invalid+' invalid.';
-  }catch(err){ statusEl.textContent='Error: '+err.message; }
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = 'Error: '+err.message;
+  }
 };
 </script>
-
-
 </body>
 </html>
