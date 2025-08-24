@@ -56,7 +56,7 @@
     <div class="card split3">
       <div>
         <label class="muted">SOQL Query</label>
-        <textarea id="soql" placeholder="SELECT Id FROM CampaignMember WHERE LastModifiedDate &gt;= LAST_N_DAYS:20 AND MQL_Status__c IS NULL AND NOT Email LIKE '%zoominfo%' "></textarea>
+        <textarea id="soql" placeholder="SELECT Id FROM CampaignMember WHERE LastModifiedDate &gt;= LAST_N_DAYS:20 AND MQL_Status__c IS NULL AND NOT Email LIKE '%example%' "></textarea>
         <div class="toolbar">
           <button class="btn small secondary" id="loadExample">Load Example</button>
           <span class="note">Dotted fields supported (e.g. <span class=hl>Campaign.Name</span>, <span class=hl>Custom__r.Field__c</span>). CSV headers must match.</span>
@@ -69,7 +69,7 @@
       </div>
       <div>
         <label class="muted">Paste CSV Data</label>
-        <textarea id="csv" placeholder="Campaign.Name,Email,LastModifiedDate,CreatedDate,Type\nCWS_March25_Homepage_Hero_FC,garry@krosland.com,2025-08-22T16:19:02.000+0000,2025-08-04T13:13:27.000+0000,CWS"></textarea>
+        <textarea id="csv" placeholder="Campaign.Name,Email,LastModifiedDate,CreatedDate,Type\March25_Homepage,cloud@example.com,2025-08-22T16:19:02.000+0000,2025-08-04T13:13:27.000+0000,Partner"></textarea>
       </div>
     </div>
 
@@ -318,7 +318,7 @@ const resultsEl = document.getElementById('results');
 const runBtn = document.getElementById('run');
 const dlBtn = document.getElementById('download');
 
-const exampleSOQL = "SELECT Id, Name FROM CampaignMember WHERE LastModifiedDate >= LAST_N_DAYS:20 AND Routing_process_result__c LIKE 'hot%' AND MQL_Status__c IS NULL AND NOT Email LIKE '%zoominfo%'";
+const exampleSOQL = "SELECT Id, Name FROM CampaignMember WHERE LastModifiedDate >= LAST_N_DAYS:20 AND Routing_process_result__c LIKE 'hot%' AND MQL_Status__c IS NULL AND NOT Email LIKE '%example%'";
 const exampleCSV = `Campaign.Name,Email,LastModifiedDate,CreatedDate,Type\nCWS_March25_Homepage_Hero_FC,garry@krosland.com,2025-08-22T16:19:02.000+0000,2025-08-04T13:13:27.000+0000,CWS`;
 
 document.getElementById('loadExample').onclick = ()=>{ soqlEl.value = exampleSOQL; csvEl.value = exampleCSV; };
